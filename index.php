@@ -1,52 +1,61 @@
 <?php
 declare(strict_types=1);
-
 mb_internal_encoding('UTF-8');
 
 
-if (!extension_loaded('mbstring')) {
-    fwrite(STDERR, "Ошибка: требуется расширение mbstring.\n");
-    exit(1);
-}
-
-
 function normalize_spaces(string $s): string {
-    $s = trim($s);
-    $s = preg_replace('/\s+/u', ' ', $s);
-    return $s ?? '';
+    $s = trim($s, " \t\r\n\0\x0B");
+    if ($s === '') return '';
+    $parts = preg_split('/[ \t\r\n\0\x0B]+/', $s);
+    return implode(' ', array_filter($parts ?: [$s], fn($p) => $p !== ''));
 }
-
 function titlecase(string $s): string {
     $s = normalize_spaces($s);
     if ($s === '') return '';
-
-    $words = preg_split('/\s+/u', $s) ?: [];
+    $words = explode(' ', $s);
     foreach ($words as &$w) {
         $parts = explode('-', $w);
         foreach ($parts as &$p) {
-            if ($p === '') continue;
-            $p = mb_strtoupper(mb_substr($p, 0, 1)) . mb_strtolower(mb_substr($p, 1));
+            if ($p !== '') {
+                $p = mb_strtoupper(mb_substr($p, 0, 1), 'UTF-8')
+                   . mb_strtolower(mb_substr($p, 1), 'UTF-8');
+            }
         }
         $w = implode('-', $parts);
     }
     return implode(' ', $words);
 }
-
 function initial(string $s): string {
     $s = normalize_spaces($s);
-    return $s === '' ? '' : mb_strtoupper(mb_substr($s, 0, 1));
+    return $s === '' ? '' : mb_strtoupper(mb_substr($s, 0, 1), 'UTF-8');
+}
+function looks_broken_stdin(string $s): bool {
+    
+    $len = strlen($s);
+    if ($len === 0) return false;
+    for ($i = 0; $i < $len; $i++) {
+        $b = ord($s[$i]);
+        if ($b !== 0x00 && $b !== 0x0D && $b !== 0x0A) return false;
+    }
+    return true;
+}
+function ask(string $prompt): string {
+    fwrite(STDOUT, $prompt);
+    fflush(STDOUT);
+    if (function_exists('readline')) {
+        $line = readline('');
+        return ($line === false ? '' : $line) . "\n";
+    }
+    $line = fgets(STDIN);
+    return $line === false ? '' : $line;
 }
 
 
-fwrite(STDOUT, "Введите фамилию: ");
-$lastRaw = fgets(STDIN);
-fwrite(STDOUT, "Введите имя: ");
-$firstRaw = fgets(STDIN);
-fwrite(STDOUT, "Введите отчество: ");
-$middleRaw = fgets(STDIN);
+$lastRaw   = ask("Введите фамилию: ");
+$firstRaw  = ask("Введите имя: ");
+$middleRaw = ask("Введите отчество: ");
 
-
-if ($lastRaw === false || $firstRaw === false || $middleRaw === false) {
+if (looks_broken_stdin($lastRaw) || looks_broken_stdin($firstRaw)) {
     fwrite(STDERR, "Ошибка ввода.\n");
     exit(1);
 }
@@ -61,19 +70,10 @@ if ($last === '' || $first === '') {
     exit(1);
 }
 
-
 $fullName = trim(normalize_spaces("$last $first $middle"));
-
 $fi = initial($first);
 $mi = initial($middle);
-
-$surnameAndInitials = $last;
-if ($fi !== '' || $mi !== '') {
-    $surnameAndInitials .= ' ';
-    if ($fi !== '') $surnameAndInitials .= $fi . '.';
-    if ($mi !== '') $surnameAndInitials .= $mi . '.';
-}
-
+$surnameAndInitials = $last . (($fi || $mi) ? " $fi." . ($mi ? "$mi." : '') : '');
 $fio = initial($last) . $fi . $mi;
 
 
